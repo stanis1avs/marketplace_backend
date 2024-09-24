@@ -1,3 +1,3 @@
-# react_backend__marketplace
+# marketplace
 
-[Heroku](https://react-backend-marketplace.herokuapp.com/)
+[frontend](https://github.com/stanis1avs/marketplace_frontend)
