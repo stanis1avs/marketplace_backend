@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+
+  redis:
+    image: redis:7
+    container_name: marketplace_redis
+    ports:
+      - "6379:6379"
+    restart: always
+    volumes:
+      - redis_data:/data
+
+  flower:
+    image: mher/flower
+    container_name: celery_flower
+    command: celery --broker=redis://redis:6379/0 flower
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    restart: always
+
+volumes:
+  redis_data:
