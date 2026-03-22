@@ -10,9 +10,13 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'price', 'category', 'color']
+    list_display = ['id', 'title', 'category', 'color', 'current_price']
     list_filter = ['category', 'season']
     search_fields = ['title', 'color']
+
+    def current_price(self, obj):
+        price = obj.prices.order_by("-fetched_at").first()
+        return price.price if price else None
 
 
 @admin.register(Size)
