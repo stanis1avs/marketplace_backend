@@ -13,15 +13,28 @@ def top_sales(request):
     """Get top sale products"""
     top_sales = Product.objects.filter(
         id__in=settings.TOP_SALE_IDS
-    ).values('id', 'title', 'price', 'images')
+    ).select_related('category').prefetch_related(
+        'prices_set'
+    )
     
-    # Parse images field for each item
     result = []
-    for item in top_sales:
-        item_dict = dict(item)
-        result.append(item_dict)
+    for product in top_sales:
+        latest_price = product.prices_set.order_by('-fetched_at').first()
+        
+        try:
+            images = json.loads(product.images) if product.images else []
+        except (json.JSONDecodeError, TypeError):
+            images = []
+        
+        item_data = {
+            'id': product.id,
+            'title': product.title,
+            'price': float(latest_price.price) if latest_price else 0,
+            'images': images
+        }
+        result.append(item_data)
     
-    return JsonResponse(result, safe=False)
+    return JsonResponse(result, safe=False, json_dumps_params={'ensure_ascii': False})
 
 
 @csrf_exempt
@@ -50,17 +63,31 @@ def items(request):
     
     items = Product.objects.filter(
         q_filter & category_filter
-    ).values('id', 'category', 'title', 'price', 'images')[
+    ).select_related('category').prefetch_related(
+        'prices_set'
+    )[
         offset:offset + settings.MORE_COUNT
     ]
     
-    # Parse images field for each item
     result = []
-    for item in items:
-        item_dict = dict(item)
-        result.append(item_dict)
+    for product in items:
+        latest_price = product.prices_set.order_by('-fetched_at').first()
+        
+        try:
+            images = json.loads(product.images) if product.images else []
+        except (json.JSONDecodeError, TypeError):
+            images = []
+        
+        item_data = {
+            'id': product.id,
+            'category': product.category.title,
+            'title': product.title,
+            'price': float(latest_price.price) if latest_price else 0,
+            'images': images
+        }
+        result.append(item_data)
     
-    return JsonResponse(result, safe=False)
+    return JsonResponse(result, safe=False, json_dumps_params={'ensure_ascii': False})
 
 
 @csrf_exempt
@@ -69,30 +96,40 @@ def item_detail(request, item_id):
     """Get product details with sizes"""
     
     try:
-        product = Product.objects.filter(id=item_id).first()
+        product = Product.objects.filter(id=item_id).select_related('category').prefetch_related(
+            'prices_set',
+            Prefetch('size_set', queryset=Size.objects.all())
+        ).first()
         
         if not product:
             return JsonResponse({'error': 'Not found'}, status=404)
         
-        sizes = Size.objects.filter(product_id=item_id).values('size', 'available')
-        sizes_list = [{'size': size['size'], 'available': size['available']} for size in sizes]
+        sizes = product.size_set.all()
+        sizes_list = [{'size': size.size, 'available': size.available} for size in sizes]
+        
+        latest_price = product.prices_set.order_by('-fetched_at').first()
+        
+        try:
+            images = json.loads(product.images) if product.images else []
+        except (json.JSONDecodeError, TypeError):
+            images = []
         
         item_data = {
             'id': product.id,
             'title': product.title,
-            'price': float(product.price),
+            'price': float(latest_price.price) if latest_price else 0,
             'color': product.color,
             'material': product.material,
             'season': product.season,
-            'images': product.images,
-            'category': product.category_id,
+            'images': images,
+            'category': product.category.title,
             'sku': product.sku,
             'manufacturer': product.manufacturer,
             'reason': product.reason,
             'sizes': sizes_list
         }
         
-        return JsonResponse(item_data)
+        return JsonResponse(item_data, json_dumps_params={'ensure_ascii': False})
         
     except Exception as e:
         return JsonResponse({'error': 'Not found'}, status=404)
@@ -110,7 +147,6 @@ def order(request):
         phone = owner.get('phone')
         address = owner.get('address')
         
-        # Validation
         if not isinstance(phone, str):
             return JsonResponse({'error': 'Bad Request: Phone'}, status=400)
         
@@ -127,9 +163,7 @@ def order(request):
                 isinstance(item.get('count'), (int, float)) and item.get('count') > 0
             ]):
                 return JsonResponse({'error': 'Bad Request'}, status=400)
-        
-        # Order processing logic would go here
-        # For now, just return success
+
         return HttpResponse(status=204)
         
     except json.JSONDecodeError:
