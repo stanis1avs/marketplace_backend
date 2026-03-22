@@ -33,6 +33,20 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
+6. Run the Celery worker:
+```bash
+celery -A django_backend worker -l info -P solo
+```
+
+7. Run the task to parse
+```bash
+python manage.py shell
+from django_backend.feeds.tasks import fetch_and_import_feed
+from api.models import FeedSource                 
+feed = FeedSource.objects.get(name="fable")
+fetch_and_import_feed.delay(feed.id)
+```
+
 ## API Endpoints
 
 - `GET /api/top-sales/` - Get top sale products
