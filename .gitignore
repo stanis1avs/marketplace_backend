@@ -82,4 +82,15 @@ typings/
 # DynamoDB Local files
 .dynamodb/
 
+# Python cache
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 venv
+tmp
+api/migrations/0*.py
+test*.py
