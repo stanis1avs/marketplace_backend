@@ -104,3 +104,20 @@ CORS_ALLOW_CREDENTIALS = True
 
 TOP_SALE_IDS = [52343, 52344, 52345]
 MORE_COUNT = 6
+
+# ── Cache (Redis db=2, separate from Celery broker/results) ───────────────────
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': config('REDIS_CACHE_URL', default='redis://127.0.0.1:6379/2'),
+    }
+}
+
+# ── WebAuthn / Passkeys ───────────────────────────────────────────────────────
+WEBAUTHN_RP_ID = config('WEBAUTHN_RP_ID', default='localhost')
+WEBAUTHN_RP_NAME = config('WEBAUTHN_RP_NAME', default='Marketplace')
+WEBAUTHN_ORIGIN = config('WEBAUTHN_ORIGIN', default='http://localhost:3000')
+SESSION_EXPIRE_DAYS = 30
+
+# ── ML models storage ─────────────────────────────────────────────────────────
+ML_MODELS_DIR = BASE_DIR / 'ml_models'

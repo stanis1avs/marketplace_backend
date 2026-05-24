@@ -1,5 +1,11 @@
-from django.db import models
+import secrets
 import uuid
+from django.db import models
+from django.utils import timezone
+from datetime import timedelta
+
+
+# ── Existing models (unchanged) ───────────────────────────────────────────────
 
 class FeedSource(models.Model):
     id = models.AutoField(primary_key=True)
@@ -94,3 +100,156 @@ class RawFeedFile(models.Model):
 
     class Meta:
         db_table = 'raw_feed_files'
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class MarketplaceUser(models.Model):
+    username = models.CharField(max_length=150, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'marketplace_users'
+
+    def __str__(self):
+        return self.username
+
+
+class WebAuthnCredential(models.Model):
+    user = models.ForeignKey(MarketplaceUser, on_delete=models.CASCADE, related_name='credentials')
+    credential_id = models.TextField(unique=True)  # base64url bytes
+    public_key = models.TextField()               # base64 CBOR/COSE bytes
+    sign_count = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'webauthn_credentials'
+
+
+class Session(models.Model):
+    id = models.CharField(max_length=64, primary_key=True)
+    user = models.ForeignKey(MarketplaceUser, on_delete=models.CASCADE, related_name='sessions')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'auth_sessions'
+
+    @classmethod
+    def create_for_user(cls, user, days=30):
+        from django.conf import settings as django_settings
+        expire_days = getattr(django_settings, 'SESSION_EXPIRE_DAYS', 30)
+        return cls.objects.create(
+            id=secrets.token_hex(32),
+            user=user,
+            expires_at=timezone.now() + timedelta(days=expire_days),
+        )
+
+
+# ── Cart ──────────────────────────────────────────────────────────────────────
+
+class Cart(models.Model):
+    user = models.OneToOneField(MarketplaceUser, on_delete=models.CASCADE, related_name='cart')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'carts'
+
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    size = models.CharField(max_length=10, blank=True)
+    count = models.PositiveIntegerField(default=1)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'cart_items'
+        unique_together = ['cart', 'product', 'size']
+
+
+# ── Interactions & Orders ─────────────────────────────────────────────────────
+
+class UserInteraction(models.Model):
+    INTERACTION_WEIGHTS = {
+        'view': 1.0,
+        'cart_add': 3.0,
+        'order': 5.0,
+    }
+
+    user = models.ForeignKey(MarketplaceUser, on_delete=models.CASCADE, related_name='interactions')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    event_type = models.CharField(max_length=20)
+    weight = models.FloatField(default=1.0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'user_interactions'
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['product']),
+            models.Index(fields=['event_type']),
+        ]
+
+
+class Order(models.Model):
+    user = models.ForeignKey(
+        MarketplaceUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders'
+    )
+    phone = models.CharField(max_length=20)
+    address = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, default='new')
+
+    class Meta:
+        db_table = 'orders'
+
+
+class OrderItem(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    count = models.PositiveIntegerField()
+    size = models.CharField(max_length=10, blank=True)
+
+    class Meta:
+        db_table = 'order_items'
+
+
+# ── Recommendations ───────────────────────────────────────────────────────────
+
+class ProductRecommendation(models.Model):
+    source_product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='recommendations_as_source'
+    )
+    target_product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='recommendations_as_target'
+    )
+    score = models.FloatField()
+    strategy = models.CharField(max_length=20)  # 'content', 'collaborative', 'cart'
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'product_recommendations'
+        unique_together = ['source_product', 'target_product', 'strategy']
+        indexes = [
+            models.Index(fields=['source_product', 'strategy', 'score']),
+        ]
+
+
+class UserRecommendation(models.Model):
+    user = models.ForeignKey(
+        MarketplaceUser, on_delete=models.CASCADE, related_name='recommendations'
+    )
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    score = models.FloatField()
+    strategy = models.CharField(max_length=20)  # 'collaborative'
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_recommendations'
+        unique_together = ['user', 'product', 'strategy']
+        indexes = [
+            models.Index(fields=['user', 'strategy', 'score']),
+        ]
